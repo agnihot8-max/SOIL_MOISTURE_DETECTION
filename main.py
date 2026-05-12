@@ -86,9 +86,10 @@ def run_batch_mode():
         context = {name: other_df for name, other_df in network_dfs.items() if name != node_name}
         process_node_df(df, node_name, context)
 
-def run_live_mode():
+def run_live_mode(single_run=False):
     """Continuously polls ThingSpeak API for all channels and performs cross-node validation."""
-    AlertSystem.log_info(f"Starting live monitoring for {len(CHANNELS)} nodes...")
+    mode_text = "stateless cron job" if single_run else "live monitoring"
+    AlertSystem.log_info(f"Starting {mode_text} for {len(CHANNELS)} nodes...")
     
     last_entry_ids = {node: None for node in CHANNELS}
     detector = AnomalyDetector(window_size=10, z_threshold=2.5)
@@ -146,26 +147,33 @@ def run_live_mode():
 
                     last_entry_ids[node_name] = current_entry_id
 
+            if single_run:
+                AlertSystem.log_info("Cron execution completed. Exiting.")
+                break
+
             time.sleep(POLL_INTERVAL_SECONDS)
 
         except requests.exceptions.RequestException as e:
             AlertSystem.log_error(f"Network error: {e}")
-            time.sleep(POLL_INTERVAL_SECONDS)
+            if not single_run: time.sleep(POLL_INTERVAL_SECONDS)
         except Exception as e:
-            AlertSystem.log_error(f"Unexpected error: {e}")
-            time.sleep(POLL_INTERVAL_SECONDS)
+            AlertSystem.log_error(f"Live loop error: {str(e)}")
+            if not single_run: time.sleep(POLL_INTERVAL_SECONDS)
+            else: break
 
 def main():
     parser = argparse.ArgumentParser(description="Soil Moisture Anomaly Detection")
-    parser.add_argument('--mode', choices=['batch', 'live', 'train'], default='batch',
-                        help="Run mode: 'batch' for local CSVs, 'live' for ThingSpeak API polling, 'train' to train the IF model.")
+    parser.add_argument('--mode', choices=['batch', 'live', 'train', 'cron'], default='batch',
+                        help="Run mode: 'batch' for local CSVs, 'live' for ThingSpeak API polling, 'train' to train the IF model, 'cron' for single run.")
     
     args = parser.parse_args()
     
     if args.mode == 'train':
         subprocess.run(["python", "-m", "src.train_model"])
     elif args.mode == 'live':
-        run_live_mode()
+        run_live_mode(single_run=False)
+    elif args.mode == 'cron':
+        run_live_mode(single_run=True)
     else:
         run_batch_mode()
 

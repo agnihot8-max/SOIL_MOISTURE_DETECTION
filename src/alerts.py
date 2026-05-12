@@ -1,4 +1,5 @@
 import os
+import json
 import smtplib
 import requests
 from email.message import EmailMessage
@@ -13,6 +14,30 @@ load_dotenv()
 class AlertSystem:
     _last_alert_time = {}
     COOLDOWN_HOURS = 12
+    STATE_FILE = "alert_state.json"
+    _state_loaded = False
+
+    @staticmethod
+    def load_state():
+        if AlertSystem._state_loaded:
+            return
+        if os.path.exists(AlertSystem.STATE_FILE):
+            try:
+                with open(AlertSystem.STATE_FILE, 'r') as f:
+                    data = json.load(f)
+                    AlertSystem._last_alert_time = {k: datetime.fromisoformat(v) for k, v in data.items()}
+            except Exception as e:
+                print(f"  {Fore.YELLOW}[WARNING]{Style.RESET_ALL} Failed to load alert state: {e}")
+        AlertSystem._state_loaded = True
+
+    @staticmethod
+    def save_state():
+        try:
+            data = {k: v.isoformat() for k, v in AlertSystem._last_alert_time.items()}
+            with open(AlertSystem.STATE_FILE, 'w') as f:
+                json.dump(data, f)
+        except Exception as e:
+            print(f"  {Fore.RED}[ERROR]{Style.RESET_ALL} Failed to save alert state: {e}")
 
     @staticmethod
     def log_status(node_name, entry_count, anomaly_count):
@@ -31,6 +56,7 @@ class AlertSystem:
         
     @staticmethod
     def dispatch_external_alert(node_name, timestamp, reason, value):
+        AlertSystem.load_state()
         alert_key = f"{node_name}_{reason}"
         now = datetime.now()
         
@@ -41,6 +67,7 @@ class AlertSystem:
                 return # Still in cooldown period, don't spam
                 
         AlertSystem._last_alert_time[alert_key] = now
+        AlertSystem.save_state()
         
         message_body = f"🚨 SOIL SENSOR ALERT 🚨\nNode: {node_name}\nAnomaly: {reason}\nTime: {timestamp}\nValue: {value}"
         
