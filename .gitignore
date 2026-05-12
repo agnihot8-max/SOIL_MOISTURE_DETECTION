@@ -9,6 +9,7 @@ env/
 __pycache__/
 *.pyc
 
+
 # VS Code settings
 .vscode/
 
