@@ -1,0 +1,7 @@
+pandas
+numpy
+requests
+python-dotenv
+colorama
+scikit-learn
+joblib

@@ -1,0 +1,173 @@
+import os
+import time
+import argparse
+import subprocess
+import requests
+import argparse
+import requests
+from src.data_processor import DataProcessor
+from src.detector import AnomalyDetector
+from src.alerts import AlertSystem
+
+# Configuration for Live Mode
+CHANNELS = {
+    "Node 1": "2996904",
+    "Node 2": "2996908",
+    "Node 3": "2996910"
+}
+RESULTS_TO_FETCH = 20
+POLL_INTERVAL_SECONDS = 60
+
+def process_node_df(df, node_name, network_context=None):
+    """Processes a loaded DataFrame with network context."""
+    try:
+        AlertSystem.log_info(f"Analyzing data for {node_name}...")
+        
+        detector = AnomalyDetector(window_size=10, z_threshold=2.5)
+        analysis_results = detector.analyze(df, network_context)
+        
+        anomalies = analysis_results[analysis_results['final_anomaly'] == True]
+        if_anomalies = analysis_results[analysis_results['if_anomaly'] == True]
+        
+        AlertSystem.log_status(node_name, len(df), len(anomalies) + len(if_anomalies))
+        
+        if not anomalies.empty:
+            for idx, row in anomalies.iterrows():
+                AlertSystem.print_anomaly(
+                    node_name,
+                    df.loc[idx, 'created_at'], 
+                    "Statistical Outlier (Z-Score)", 
+                    df.loc[idx, 'soil_moisture_raw']
+                )
+                
+        if not if_anomalies.empty:
+            for idx, row in if_anomalies.iterrows():
+                AlertSystem.print_anomaly(
+                    node_name,
+                    df.loc[idx, 'created_at'], 
+                    f"ML Anomaly: {row['if_reason']}", 
+                    "N/A (Multivariate)"
+                )
+        
+        stuck = analysis_results[analysis_results['stuck_sensor'] == True]
+        if not stuck.empty:
+            for idx, row in stuck.iterrows():
+                AlertSystem.print_anomaly(node_name, df.loc[idx, 'created_at'], "Sensor Flat-line (Possible failure)", df.loc[idx, 'soil_moisture_raw'])
+                
+        battery_low = analysis_results[analysis_results['battery_low'] == True]
+        if not battery_low.empty:
+            for idx, row in battery_low.iterrows():
+                AlertSystem.print_anomaly(node_name, df.loc[idx, 'created_at'], "Low Battery", df.loc[idx, 'battery_voltage'])
+
+    except Exception as e:
+        AlertSystem.log_error(f"Failed to process {node_name}: {str(e)}")
+
+def run_batch_mode():
+    """Runs the analysis on local CSV files with network context."""
+    downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+    files_to_process = {
+        "Node A": os.path.join(downloads_path, "feed.csv"),
+        "Node B": os.path.join(downloads_path, "feed (1).csv")
+    }
+    
+    # 1. Load all available data to form the network context
+    network_dfs = {}
+    for node_name, file_path in files_to_process.items():
+        if os.path.exists(file_path):
+            try:
+                network_dfs[node_name] = DataProcessor.load_csv(file_path)
+            except Exception as e:
+                AlertSystem.log_error(f"Failed to load {file_path}: {e}")
+        else:
+            AlertSystem.log_error(f"File not found for {node_name}: {file_path}")
+            
+    # 2. Analyze each node using the others as context
+    for node_name, df in network_dfs.items():
+        context = {name: other_df for name, other_df in network_dfs.items() if name != node_name}
+        process_node_df(df, node_name, context)
+
+def run_live_mode():
+    """Continuously polls ThingSpeak API for all channels and performs cross-node validation."""
+    AlertSystem.log_info(f"Starting live monitoring for {len(CHANNELS)} nodes...")
+    
+    last_entry_ids = {node: None for node in CHANNELS}
+    detector = AnomalyDetector(window_size=10, z_threshold=2.5)
+
+    while True:
+        try:
+            # 1. Fetch data from all channels
+            network_dfs = {}
+            latest_entries = {}
+            
+            for node_name, channel_id in CHANNELS.items():
+                url = f"https://api.thingspeak.com/channels/{channel_id}/feeds.json?results={RESULTS_TO_FETCH}"
+                response = requests.get(url)
+                response.raise_for_status()
+                data = response.json()
+                
+                feeds = data.get("feeds", [])
+                if feeds:
+                    network_dfs[node_name] = DataProcessor.load_json(feeds)
+                    latest_entries[node_name] = feeds[-1]
+                else:
+                    AlertSystem.log_error(f"No feeds returned for {node_name}.")
+                    
+            # 2. Analyze each node using the network context
+            for node_name, df in network_dfs.items():
+                current_entry_id = latest_entries[node_name].get("entry_id")
+                
+                if current_entry_id != last_entry_ids[node_name]:
+                    context = {name: other_df for name, other_df in network_dfs.items() if name != node_name}
+                    
+                    if len(df) >= detector.window_size:
+                        analysis_results = detector.analyze(df, context)
+                        
+                        latest_status = analysis_results.iloc[-1]
+                        latest_time = df.iloc[-1]['created_at']
+                        latest_value = df.iloc[-1]['soil_moisture_raw']
+
+                        print(f"[{latest_time}] {node_name} | New Entry (ID: {current_entry_id}) | Moisture: {latest_value}")
+
+                        if latest_status['is_global_event']:
+                            AlertSystem.log_info(f"Verified global event (Rain) for {node_name}. Anomalies suppressed.")
+
+                        if latest_status['if_anomaly']:
+                            AlertSystem.print_anomaly(node_name, latest_time, f"ML Anomaly: {latest_status['if_reason']}", "N/A")
+                        elif latest_status['final_anomaly']:
+                            AlertSystem.print_anomaly(node_name, latest_time, "Statistical Outlier (Z-Score)", latest_value)
+                        
+                        if latest_status['stuck_sensor']:
+                            AlertSystem.print_anomaly(node_name, latest_time, "Sensor Flat-line (Possible failure)", latest_value)
+                            
+                        if latest_status['battery_low']:
+                            AlertSystem.print_anomaly(node_name, latest_time, "Low Battery", df.iloc[-1]['battery_voltage'])
+                    else:
+                        AlertSystem.log_info(f"Building initial window buffer for {node_name}... ({len(df)}/{detector.window_size})")
+
+                    last_entry_ids[node_name] = current_entry_id
+
+            time.sleep(POLL_INTERVAL_SECONDS)
+
+        except requests.exceptions.RequestException as e:
+            AlertSystem.log_error(f"Network error: {e}")
+            time.sleep(POLL_INTERVAL_SECONDS)
+        except Exception as e:
+            AlertSystem.log_error(f"Unexpected error: {e}")
+            time.sleep(POLL_INTERVAL_SECONDS)
+
+def main():
+    parser = argparse.ArgumentParser(description="Soil Moisture Anomaly Detection")
+    parser.add_argument('--mode', choices=['batch', 'live', 'train'], default='batch',
+                        help="Run mode: 'batch' for local CSVs, 'live' for ThingSpeak API polling, 'train' to train the IF model.")
+    
+    args = parser.parse_args()
+    
+    if args.mode == 'train':
+        subprocess.run(["python", "-m", "src.train_model"])
+    elif args.mode == 'live':
+        run_live_mode()
+    else:
+        run_batch_mode()
+
+if __name__ == "__main__":
+    main()
