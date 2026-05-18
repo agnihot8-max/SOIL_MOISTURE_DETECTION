@@ -3,6 +3,7 @@ import pandas as pd
 from src.data_processor import DataProcessor
 from src.detector import AnomalyDetector
 from src.alerts import AlertSystem
+from src.weather import WeatherContext
 
 def test_anomaly():
     # Load a normal dataset
@@ -17,6 +18,9 @@ def test_anomaly():
     
     print("\n--- INJECTING FAKE ANOMALY ---")
     print("Simulating a sudden irrigation pipe burst on Node A...")
+    
+    # Force the weather API to say it hasn't rained so the test succeeds
+    WeatherContext.check_recent_precipitation = lambda lat, lon: False
     
     # Intentionally corrupt the very last reading to be a massive spike
     last_idx = df.index[-1]

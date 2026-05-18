@@ -5,8 +5,6 @@ from src.data_processor import DataProcessor
 from src.alerts import AlertSystem
 
 import pandas as pd
-
-import pandas as pd
 import numpy as np
 
 # The base features and the new relative features

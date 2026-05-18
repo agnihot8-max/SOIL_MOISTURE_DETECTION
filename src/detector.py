@@ -3,6 +3,7 @@ import numpy as np
 import joblib
 import os
 from src.alerts import AlertSystem
+from src.weather import WeatherContext
 
 class AnomalyDetector:
     def __init__(self, window_size=5, z_threshold=3.0):
@@ -104,7 +105,12 @@ class AnomalyDetector:
                 elif top_feature == 'soil_temp_c' or top_feature == 'temp_diff':
                     reason = "Temperature Unusually High" if row['soil_temp_c'] > means['soil_temp_c'] else "Temperature Unusually Low"
                 elif top_feature == 'soil_moisture_raw' or top_feature == 'moisture_diff':
-                    reason = "Moisture Deviation from Farm Average"
+                    # Heuristic Suppression: If ML model is being too pedantic about a tiny deviation, ignore it
+                    if abs(row['moisture_diff']) < 300:
+                        results.iloc[idx, results.columns.get_loc('if_anomaly')] = False
+                        reason = ""
+                    else:
+                        reason = "Moisture Deviation from Farm Average"
                 else:
                     reason = f"Network Anomaly (RSSI: {row['rssi_dbm']})"
                     
@@ -130,7 +136,10 @@ class AnomalyDetector:
         if_results = self.detect_isolation_forest(df, network_context)
         results = pd.concat([results, if_results], axis=1)
         
-        # 5. Rainfall Heuristic & Cross-Node Validation
+        # 5. Rainfall Heuristic & Cross-Node Validation & Weather API
+        lat = os.environ.get('FARM_LATITUDE')
+        lon = os.environ.get('FARM_LONGITUDE')
+        
         moisture_diff = df['soil_moisture_raw'].diff()
         results['is_spike'] = moisture_diff > (df['soil_moisture_raw'].mean() * 0.05)
         results['is_global_event'] = False
@@ -149,8 +158,6 @@ class AnomalyDetector:
                         time_diffs = (other_df['created_at'] - time_of_spike).abs()
                         if time_diffs.min() < pd.Timedelta(hours=2):
                             closest_idx = time_diffs.idxmin()
-                            # Check if the other node also saw a significant moisture increase nearby
-                            # We check a small window around the closest index
                             window_start = max(0, other_df.index.get_loc(closest_idx) - 2)
                             window_end = min(len(other_df), other_df.index.get_loc(closest_idx) + 3)
                             
@@ -158,15 +165,28 @@ class AnomalyDetector:
                             if (other_diffs > (other_df['soil_moisture_raw'].mean() * 0.05)).any():
                                 spiked_count += 1
                                 
-                    # If at least one other node spiked, it's a global event (Rain)
-                    if spiked_count >= 1:
+                    # Cross-reference with the Weather API
+                    has_rained = WeatherContext.check_recent_precipitation(lat, lon)
+                    
+                    if has_rained:
+                        AlertSystem.log_info("Weather API confirms recent rainfall. Suppressing anomalies.")
                         results.loc[idx, 'is_global_event'] = True
-                        
-                        # Suppress ML anomaly if it was just complaining about the moisture spike
                         if results.loc[idx, 'if_reason'] == "Moisture Deviation from Farm Average":
                             results.loc[idx, 'if_anomaly'] = False
                             results.loc[idx, 'if_reason'] = ""
+                    elif has_rained is False:
+                        AlertSystem.log_info("Moisture spiked but Weather API reports NO RAIN! Possible irrigation or leak.")
+                        results.loc[idx, 'is_global_event'] = False
+                    else:
+                        # Weather API failed or coordinates missing. Fallback to node correlation.
+                        if spiked_count >= 1:
+                            AlertSystem.log_info("Weather API unavailable. Using cross-node validation: Global event detected.")
+                            results.loc[idx, 'is_global_event'] = True
                             
+                            if results.loc[idx, 'if_reason'] == "Moisture Deviation from Farm Average":
+                                results.loc[idx, 'if_anomaly'] = False
+                                results.loc[idx, 'if_reason'] = ""
+                                
             # Anomaly is true if Z-score is high AND it's NOT a global event
             results['final_anomaly'] = results['zscore_anomaly'] & ~results['is_global_event']
         else:

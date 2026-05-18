@@ -69,7 +69,7 @@ class AlertSystem:
         AlertSystem._last_alert_time[alert_key] = now
         AlertSystem.save_state()
         
-        message_body = f"🚨 SOIL SENSOR ALERT 🚨\nNode: {node_name}\nAnomaly: {reason}\nTime: {timestamp}\nValue: {value}"
+        message_body = f" SOIL SENSOR ALERT \nNode: {node_name}\nAnomaly: {reason}\nTime: {timestamp}\nValue: {value}"
         
         AlertSystem.send_ntfy(message_body)
         AlertSystem.send_email(f"Alert: {node_name} - {reason}", message_body)
@@ -85,8 +85,7 @@ class AlertSystem:
             url = f"https://ntfy.sh/{ntfy_topic}"
             requests.post(url, data=body.encode(encoding='utf-8'), headers={
                 "Title": "Soil Moisture Anomaly",
-                "Priority": "high",
-                "Tags": "warning,leaves"
+                "Priority": "high"
             })
             print(f"  {Fore.GREEN}[NTFY]{Style.RESET_ALL} Push notification dispatched to topic: {ntfy_topic}")
         except Exception as e:
