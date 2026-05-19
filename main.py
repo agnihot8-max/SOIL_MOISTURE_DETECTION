@@ -114,6 +114,9 @@ def run_live_mode(single_run=False, verbose=False):
                 else:
                     AlertSystem.log_error(f"No feeds returned for {node_name}.")
                     
+                import time
+                time.sleep(1.5) # Respect ThingSpeak Free Tier rate limit (1 req/sec)
+                    
             # 2. Analyze each node using the network context
             for node_name, df in network_dfs.items():
                 current_entry_id = latest_entries[node_name].get("entry_id")
