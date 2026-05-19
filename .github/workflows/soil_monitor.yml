@@ -25,13 +25,6 @@ jobs:
     - name: Install dependencies
       run: pip install -r requirements.txt
 
-    - name: Restore Alert State Cache
-      uses: actions/cache/restore@v4
-      with:
-        path: alert_state.json
-        key: alert-state-v3-${{ github.run_id }}
-        restore-keys: |
-          alert-state-v3-
 
     - name: Run Soil Monitor (Cron Mode)
       run: python main.py --mode cron
@@ -43,9 +36,3 @@ jobs:
         FARM_LATITUDE: ${{ secrets.FARM_LATITUDE }}
         FARM_LONGITUDE: ${{ secrets.FARM_LONGITUDE }}
 
-    - name: Save Alert State Cache
-      uses: actions/cache/save@v4
-      if: always()
-      with:
-        path: alert_state.json
-        key: alert-state-v3-${{ github.run_id }}

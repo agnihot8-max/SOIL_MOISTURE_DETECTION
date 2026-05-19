@@ -88,7 +88,6 @@ def run_batch_mode():
 
 def run_live_mode(single_run=False, verbose=False):
     """Continuously polls ThingSpeak API for all channels and performs cross-node validation."""
-    AlertSystem.load_state()
     mode_text = "stateless cron job" if single_run else "live monitoring"
     AlertSystem.log_info(f"Starting {mode_text} for {len(CHANNELS)} nodes...")
     
@@ -164,7 +163,6 @@ def run_live_mode(single_run=False, verbose=False):
                     last_entry_ids[node_name] = current_entry_id
 
             if single_run:
-                AlertSystem.save_state()
                 AlertSystem.log_info("Cron execution completed. Exiting.")
                 break
 
