@@ -22,6 +22,15 @@ def train_isolation_forest(csv_paths):
         
         # Load and clean the dataset
         df = DataProcessor.load_csv(path)
+        
+        # Extract node name from filename
+        filename = os.path.basename(path).lower()
+        if 'node_1' in filename: node_name = "Node 1"
+        elif 'node_2' in filename: node_name = "Node 2"
+        elif 'node_3' in filename: node_name = "Node 3"
+        else: node_name = "Unknown"
+        
+        df['node_name'] = node_name
         all_dfs.append(df)
         
     if not all_dfs:
@@ -74,25 +83,37 @@ def train_isolation_forest(csv_paths):
             
     X = train_df[TRAIN_FEATURES]
 
-    AlertSystem.log_info(f"Training Isolation Forest on {len(X)} entries...")
-    
-    # Initialize Isolation Forest
-    # contamination is the expected proportion of outliers. 
-    # For a robust system, we might set this low (e.g., 1% or 0.01)
-    model = IsolationForest(n_estimators=100, contamination=0.01, random_state=42)
-    
-    # Fit the model
-    model.fit(X)
-    
     # Ensure the models directory exists
     os.makedirs('models', exist_ok=True)
     
-    # Save the model
-    model_path = os.path.join('models', 'master_if_model.joblib')
-    joblib.dump(model, model_path)
+    import json
     
-    AlertSystem.log_status("Training", len(X), 0)
-    AlertSystem.log_info(f"Model saved successfully to {model_path}")
+    # DECENTRALIZED TRAINING: Train a separate brain for each node
+    nodes = train_df['node_name'].unique()
+    for node_name in nodes:
+        node_df = train_df[train_df['node_name'] == node_name]
+        X = node_df[TRAIN_FEATURES]
+
+        AlertSystem.log_info(f"Training Decentralized Brain for {node_name} on {len(X)} entries...")
+        
+        # Initialize Isolation Forest
+        model = IsolationForest(n_estimators=100, contamination=0.01, random_state=42)
+        model.fit(X)
+        
+        # Save the model
+        safe_name = node_name.replace(" ", "_")
+        model_path = os.path.join('models', f'{safe_name}_model.joblib')
+        joblib.dump(model, model_path)
+        
+        # Calculate and save individual node means
+        node_means = X.mean().to_dict()
+        means_path = os.path.join('models', f'{safe_name}_means.json')
+        with open(means_path, 'w') as f:
+            json.dump(node_means, f, indent=4)
+            
+        AlertSystem.log_info(f"Brain and Baselines saved for {node_name} to {model_path}")
+        
+    AlertSystem.log_status("Decentralized Training", len(train_df), 0)
 
 if __name__ == "__main__":
     downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")

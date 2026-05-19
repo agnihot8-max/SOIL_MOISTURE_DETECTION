@@ -51,9 +51,24 @@ class AlertSystem:
 
     @staticmethod
     def print_anomaly(node_name, timestamp, reason, value):
-        print(f"  {Fore.RED}[ANOMALY]{Style.RESET_ALL} [{node_name}] {timestamp} | {reason} | Value: {value}")
+        if value == "N/A" or value == "":
+            print(f"  {Fore.RED}[ANOMALY]{Style.RESET_ALL} [{node_name}] {timestamp} | {reason}")
+        else:
+            print(f"  {Fore.RED}[ANOMALY]{Style.RESET_ALL} [{node_name}] {timestamp} | {reason} | Value: {value}")
+            
         AlertSystem.dispatch_external_alert(node_name, timestamp, reason, value)
         
+    @staticmethod
+    def print_insight(node_name, timestamp, moisture, temp, batt, rssi, z_score, moisture_diff, temp_diff, std_dev):
+        print(f"{Fore.LIGHTBLACK_EX}[{timestamp}] {node_name} | Normal | Moist: {moisture:.0f} | Temp: {temp:.1f}C | Batt: {batt:.2f}v | RSSI: {rssi:.0f}dBm{Style.RESET_ALL}")
+        print(f"   {Fore.LIGHTBLACK_EX}-> [AI Insight] Status: NORMAL{Style.RESET_ALL}")
+        print(f"   {Fore.LIGHTBLACK_EX}-> [Math] Z-Score is {z_score:.2f} (Must be > 2.5 to trigger alarm){Style.RESET_ALL}")
+        
+        threshold = std_dev if std_dev > 50 else 50.0
+        print(f"   {Fore.LIGHTBLACK_EX}-> [Math] Farm Moisture Dev is {abs(moisture_diff):.2f} (If ML triggers, must be > {threshold:.2f} to pass minimum threshold){Style.RESET_ALL}")
+        print(f"   {Fore.LIGHTBLACK_EX}-> [Math] Farm Temp Dev is {abs(temp_diff):.2f}C (If ML triggers, must be > 2.00C to pass minimum threshold){Style.RESET_ALL}")
+        print("")
+
     @staticmethod
     def dispatch_external_alert(node_name, timestamp, reason, value):
         AlertSystem.load_state()

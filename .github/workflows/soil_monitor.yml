@@ -40,6 +40,8 @@ jobs:
         SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         MY_EMAIL: ${{ secrets.MY_EMAIL }}
         NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        FARM_LATITUDE: ${{ secrets.FARM_LATITUDE }}
+        FARM_LONGITUDE: ${{ secrets.FARM_LONGITUDE }}
 
     - name: Save Alert State Cache
       uses: actions/cache/save@v4

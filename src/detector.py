@@ -10,12 +10,8 @@ class AnomalyDetector:
         self.window_size = window_size
         self.z_threshold = z_threshold
         
-        self.if_model = None
-        model_path = os.path.join('models', 'master_if_model.joblib')
-        if os.path.exists(model_path):
-            self.if_model = joblib.load(model_path)
-        else:
-            AlertSystem.log_info("Isolation Forest model not found. Running in basic statistical mode.")
+        self.models = {}
+        self.means = {}
 
     def detect_flat_line(self, series, window=5):
         """Detects if the sensor values are stuck (no change)."""
@@ -39,14 +35,27 @@ class AnomalyDetector:
         z_scores = (series - rolling_mean) / rolling_std
         return z_scores.abs() > self.z_threshold
 
-    def detect_isolation_forest(self, df, network_context=None):
+    def detect_isolation_forest(self, df, node_name, network_context=None):
         """Uses the pre-trained Isolation Forest to find multivariate anomalies and contextualizes them."""
         results = pd.DataFrame(index=df.index)
         results['if_anomaly'] = False
         results['if_reason'] = ""
         
-        if self.if_model is None:
-            return results
+        safe_name = node_name.replace(" ", "_")
+        model_path = os.path.join('models', f'{safe_name}_model.joblib')
+        means_path = os.path.join('models', f'{safe_name}_means.json')
+        
+        if safe_name not in self.models:
+            if os.path.exists(model_path) and os.path.exists(means_path):
+                self.models[safe_name] = joblib.load(model_path)
+                import json
+                with open(means_path, 'r') as f:
+                    self.means[safe_name] = json.load(f)
+            else:
+                return results
+                
+        node_model = self.models[safe_name]
+        node_means = self.means[safe_name]
             
         base_features = ['soil_moisture_raw', 'soil_temp_c', 'battery_voltage', 'rssi_dbm']
         train_features = base_features + ['moisture_diff', 'temp_diff']
@@ -59,12 +68,14 @@ class AnomalyDetector:
         df = df.copy()
         df['moisture_diff'] = 0.0
         df['temp_diff'] = 0.0
+        df['battery_diff'] = 0.0
         
         if network_context:
             for idx in df.index:
                 target_time = df.loc[idx, 'created_at']
                 moisture_vals = [df.loc[idx, 'soil_moisture_raw']]
                 temp_vals = [df.loc[idx, 'soil_temp_c']]
+                battery_vals = [df.loc[idx, 'battery_voltage']]
                 
                 # Get the closest reading from other nodes
                 for name, other_df in network_context.items():
@@ -74,19 +85,22 @@ class AnomalyDetector:
                             closest_idx = time_diffs.idxmin()
                             moisture_vals.append(other_df.loc[closest_idx, 'soil_moisture_raw'])
                             temp_vals.append(other_df.loc[closest_idx, 'soil_temp_c'])
+                            battery_vals.append(other_df.loc[closest_idx, 'battery_voltage'])
                 
                 # Calculate farm average at this exact point in time
                 farm_avg_moist = sum(moisture_vals) / len(moisture_vals)
                 farm_avg_temp = sum(temp_vals) / len(temp_vals)
+                farm_avg_batt = sum(battery_vals) / len(battery_vals)
                 
                 df.loc[idx, 'moisture_diff'] = df.loc[idx, 'soil_moisture_raw'] - farm_avg_moist
                 df.loc[idx, 'temp_diff'] = df.loc[idx, 'soil_temp_c'] - farm_avg_temp
+                df.loc[idx, 'battery_diff'] = df.loc[idx, 'battery_voltage'] - farm_avg_batt
             
         # Predict (-1 is anomaly, 1 is normal)
-        predictions = self.if_model.predict(df[train_features].fillna(0))
+        predictions = node_model.predict(df[train_features].fillna(0))
         
-        # Calculate historical averages for context
-        means = df[train_features].mean()
+        # Use historical node means
+        means = pd.Series(node_means)
         stds = df[train_features].std().replace(0, 1e-9) # avoid div zero
         
         for idx in range(len(predictions)):
@@ -101,29 +115,59 @@ class AnomalyDetector:
                 
                 # Assign a smart reason based on the top feature
                 if top_feature == 'battery_voltage':
-                    reason = "Battery Voltage Unusually Low/Dead" if row['battery_voltage'] < means['battery_voltage'] else "Battery Voltage Unusually High"
-                elif top_feature == 'soil_temp_c' or top_feature == 'temp_diff':
-                    reason = "Temperature Unusually High" if row['soil_temp_c'] > means['soil_temp_c'] else "Temperature Unusually Low"
-                elif top_feature == 'soil_moisture_raw' or top_feature == 'moisture_diff':
-                    # Heuristic Suppression: If ML model is being too pedantic about a tiny deviation, ignore it
-                    if abs(row['moisture_diff']) < 300:
+                    val = row['battery_voltage']
+                    exp = means['battery_voltage']
+                    
+                    battery_diff = df.loc[df.index[idx], 'battery_diff'] if 'battery_diff' in df.columns else 0.0
+                    
+                    # Battery Leash: Ignore fluctuations < 0.2v OR cross-node environmental temp drifts
+                    if abs(val - exp) < 0.2 or (network_context and abs(battery_diff) < 0.2):
                         results.iloc[idx, results.columns.get_loc('if_anomaly')] = False
                         reason = ""
                     else:
-                        reason = "Moisture Deviation from Farm Average"
+                        reason = f"Battery Voltage Unusually Low (Act: {val:.2f}v, Exp: {exp:.2f}v)" if val < exp else f"Battery Voltage Unusually High (Act: {val:.2f}v, Exp: {exp:.2f}v)"
+                elif top_feature == 'soil_temp_c' or top_feature == 'temp_diff':
+                    # Heatwave/Cold Snap Context: If the entire farm is hot/cold, suppress the anomaly
+                    if network_context and abs(row['temp_diff']) < 2.0:
+                        results.iloc[idx, results.columns.get_loc('if_anomaly')] = False
+                        reason = ""
+                    else:
+                        val = row['soil_temp_c']
+                        exp = means['soil_temp_c']
+                        reason = f"Temperature Unusually High (Act: {val:.1f}C, Exp: {exp:.1f}C)" if val > exp else f"Temperature Unusually Low (Act: {val:.1f}C, Exp: {exp:.1f}C)"
+                elif top_feature == 'soil_moisture_raw' or top_feature == 'moisture_diff':
+                    # Heuristic Suppression: Dynamic Standard Deviation Leash
+                    rolling_std = df['soil_moisture_raw'].std()
+                    threshold = rolling_std if rolling_std > 50 else 50.0 # Floor at 50 to prevent micro-noise
+                    
+                    if abs(row['moisture_diff']) < threshold:
+                        results.iloc[idx, results.columns.get_loc('if_anomaly')] = False
+                        reason = ""
+                    else:
+                        val = row['soil_moisture_raw']
+                        exp = means['soil_moisture_raw']
+                        reason = f"Moisture Deviation from Farm Average (Act: {val:.0f}, Exp: {exp:.0f})"
                 else:
-                    reason = f"Network Anomaly (RSSI: {row['rssi_dbm']})"
+                    reason = f"Network Anomaly (RSSI: {row['rssi_dbm']:.0f} dBm, Exp: {means['rssi_dbm']:.0f} dBm)"
                     
                 results.iloc[idx, results.columns.get_loc('if_reason')] = reason
                 
+        # Attach raw math variables for Verbose Insight Engine
+        results['raw_moisture_diff'] = df['moisture_diff']
+        results['raw_temp_diff'] = df['temp_diff']
+        results['raw_std_dev'] = df['soil_moisture_raw'].std()
+                
         return results
 
-    def analyze(self, df, network_context=None):
+    def analyze(self, df, node_name, network_context=None):
         """Runs all detection logic on the DataFrame, using network context if available."""
         results = pd.DataFrame(index=df.index)
         
         # 1. Statistical Anomalies
-        results['zscore_anomaly'] = self.calculate_zscore(df['soil_moisture_raw'])
+        z_scores = ((df['soil_moisture_raw'] - df['soil_moisture_raw'].rolling(window=self.window_size, min_periods=1).mean()) / 
+                    df['soil_moisture_raw'].rolling(window=self.window_size, min_periods=1).std().replace(0, 1e-9)).abs()
+        results['zscore_anomaly'] = z_scores > self.z_threshold
+        results['raw_zscore'] = z_scores # Save for Insight Engine
         
         # 2. Sensor Stuck
         results['stuck_sensor'] = self.detect_flat_line(df['soil_moisture_raw'])
@@ -133,7 +177,7 @@ class AnomalyDetector:
         results = pd.concat([results, range_checks], axis=1)
         
         # 4. Machine Learning Anomaly (Isolation Forest)
-        if_results = self.detect_isolation_forest(df, network_context)
+        if_results = self.detect_isolation_forest(df, node_name, network_context)
         results = pd.concat([results, if_results], axis=1)
         
         # 5. Rainfall Heuristic & Cross-Node Validation & Weather API

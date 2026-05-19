@@ -24,7 +24,7 @@ def process_node_df(df, node_name, network_context=None):
         AlertSystem.log_info(f"Analyzing data for {node_name}...")
         
         detector = AnomalyDetector(window_size=10, z_threshold=2.5)
-        analysis_results = detector.analyze(df, network_context)
+        analysis_results = detector.analyze(df, node_name, network_context)
         
         anomalies = analysis_results[analysis_results['final_anomaly'] == True]
         if_anomalies = analysis_results[analysis_results['if_anomaly'] == True]
@@ -86,7 +86,7 @@ def run_batch_mode():
         context = {name: other_df for name, other_df in network_dfs.items() if name != node_name}
         process_node_df(df, node_name, context)
 
-def run_live_mode(single_run=False):
+def run_live_mode(single_run=False, verbose=False):
     """Continuously polls ThingSpeak API for all channels and performs cross-node validation."""
     AlertSystem.load_state()
     mode_text = "stateless cron job" if single_run else "live monitoring"
@@ -122,13 +122,25 @@ def run_live_mode(single_run=False):
                     context = {name: other_df for name, other_df in network_dfs.items() if name != node_name}
                     
                     if len(df) >= detector.window_size:
-                        analysis_results = detector.analyze(df, context)
+                        analysis_results = detector.analyze(df, node_name, context)
                         
                         latest_status = analysis_results.iloc[-1]
                         latest_time = df.iloc[-1]['created_at']
                         latest_value = df.iloc[-1]['soil_moisture_raw']
+                        latest_temp = df.iloc[-1]['soil_temp_c']
+                        latest_batt = df.iloc[-1]['battery_voltage']
+                        latest_rssi = df.iloc[-1]['rssi_dbm']
 
-                        print(f"[{latest_time}] {node_name} | New Entry (ID: {current_entry_id}) | Moisture: {latest_value}")
+                        is_anomaly = latest_status['if_anomaly'] or latest_status['final_anomaly'] or latest_status['stuck_sensor'] or latest_status['battery_low']
+                        
+                        if verbose and not is_anomaly:
+                            z_score = latest_status['raw_zscore']
+                            m_diff = latest_status['raw_moisture_diff']
+                            t_diff = latest_status['raw_temp_diff']
+                            std_dev = latest_status['raw_std_dev']
+                            AlertSystem.print_insight(node_name, latest_time, latest_value, latest_temp, latest_batt, latest_rssi, z_score, m_diff, t_diff, std_dev)
+                        else:
+                            print(f"[{latest_time}] {node_name} | New Entry (ID: {current_entry_id}) | Moist: {latest_value:.0f} | Temp: {latest_temp:.1f}C | Batt: {latest_batt:.2f}v | RSSI: {latest_rssi:.0f}dBm")
 
                         if latest_status['is_global_event']:
                             AlertSystem.log_info(f"Verified global event (Rain) for {node_name}. Anomalies suppressed.")
@@ -167,15 +179,16 @@ def main():
     parser = argparse.ArgumentParser(description="Soil Moisture Anomaly Detection")
     parser.add_argument('--mode', choices=['batch', 'live', 'train', 'cron'], default='batch',
                         help="Run mode: 'batch' for local CSVs, 'live' for ThingSpeak API polling, 'train' to train the IF model, 'cron' for single run.")
+    parser.add_argument('--verbose', action='store_true', help="Enable the Insight Engine to print detailed math for normal readings.")
     
     args = parser.parse_args()
     
     if args.mode == 'train':
         subprocess.run(["python", "-m", "src.train_model"])
     elif args.mode == 'live':
-        run_live_mode(single_run=False)
+        run_live_mode(single_run=False, verbose=args.verbose)
     elif args.mode == 'cron':
-        run_live_mode(single_run=True)
+        run_live_mode(single_run=True, verbose=args.verbose)
     else:
         run_batch_mode()
 
