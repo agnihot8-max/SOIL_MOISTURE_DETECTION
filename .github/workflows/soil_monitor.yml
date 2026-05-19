@@ -29,9 +29,9 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: alert_state.json
-        key: alert-state-${{ github.run_id }}
+        key: alert-state-v2-${{ github.run_id }}
         restore-keys: |
-          alert-state-
+          alert-state-v2-
 
     - name: Run Soil Monitor (Cron Mode)
       run: python main.py --mode cron
@@ -48,4 +48,4 @@ jobs:
       if: always()
       with:
         path: alert_state.json
-        key: alert-state-${{ github.run_id }}
+        key: alert-state-v2-${{ github.run_id }}
