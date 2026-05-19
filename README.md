@@ -6,7 +6,7 @@ The system pulls live sensor data from online **ThingSpeak API** channels or use
 
 ---
 
-## 🚀 Key Features
+##  Key Features
 
 * **Dual-Engine Anomaly Detection:**
   * **Statistical Outliers (Rolling Z-Score):** Tracks standard mathematical deviations to immediately catch sudden, sharp moisture spikes or drops on an individual sensor.
@@ -18,7 +18,7 @@ The system pulls live sensor data from online **ThingSpeak API** channels or use
 
 ---
 
-## 📁 Repository Structure
+##  Repository Structure
 
 * **Automated CI/CD Pipelines:**
   * **GitHub Workflows:** The configuration file located in `.github/workflows/soil_monitor.yml` that automates the execution engine every 31 minutes via cron schedules.
@@ -40,7 +40,7 @@ The system pulls live sensor data from online **ThingSpeak API** channels or use
 
 ---
 
-## 🛠️ Getting Started
+##  Getting Started
 
 * **Infrastructure Prerequisites:**
   * **Python Runtime:** Python 3.11 or higher installed on your target deployment environment.
@@ -61,7 +61,7 @@ The system pulls live sensor data from online **ThingSpeak API** channels or use
 
 ---
 
-## 💻 Usage
+##  Usage
 
 * **Historical Data Parsing:**
   * **Batch Processing Mode:** Run `python main.py --mode batch` to compile local log exports (e.g., `~/Downloads/feed.csv`) to parse farm node variances.
@@ -74,7 +74,7 @@ The system pulls live sensor data from online **ThingSpeak API** channels or use
 
 ---
 
-## ⚙️ CI/CD Deployment
+##  CI/CD Deployment
 
 * **Automated Serverless Scheduling:**
   * **Interval Frequency:** Workflow rules inside `.github/workflows/soil_monitor.yml` fire a data check automatically **every 31 minutes** using an automated cloud timer layout (cron format).
