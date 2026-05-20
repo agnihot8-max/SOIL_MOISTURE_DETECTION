@@ -86,7 +86,7 @@ def run_batch_mode():
         context = {name: other_df for name, other_df in network_dfs.items() if name != node_name}
         process_node_df(df, node_name, context)
 
-def run_live_mode(single_run=False, verbose=False):
+def run_live_mode(single_run=False, detail=False):
     """Continuously polls ThingSpeak API for all channels and performs cross-node validation."""
     mode_text = "stateless cron job" if single_run else "live monitoring"
     AlertSystem.log_info(f"Starting {mode_text} for {len(CHANNELS)} nodes...")
@@ -135,7 +135,7 @@ def run_live_mode(single_run=False, verbose=False):
 
                         is_anomaly = latest_status['if_anomaly'] or latest_status['final_anomaly'] or latest_status['stuck_sensor'] or latest_status['battery_low']
                         
-                        if verbose and not is_anomaly:
+                        if detail and not is_anomaly:
                             z_score = latest_status['raw_zscore']
                             m_diff = latest_status['raw_moisture_diff']
                             t_diff = latest_status['raw_temp_diff']
@@ -180,16 +180,19 @@ def main():
     parser = argparse.ArgumentParser(description="Soil Moisture Anomaly Detection")
     parser.add_argument('--mode', choices=['batch', 'live', 'train', 'cron'], default='batch',
                         help="Run mode: 'batch' for local CSVs, 'live' for ThingSpeak API polling, 'train' to train the IF model, 'cron' for single run.")
-    parser.add_argument('--verbose', action='store_true', help="Enable the Insight Engine to print detailed math for normal readings.")
+    parser.add_argument('--detail', action='store_true', help="Enable the Insight Engine to print detailed math for normal readings.")
     
     args = parser.parse_args()
+    
+    # Check alert configuration before running any modes
+    AlertSystem.check_configuration()
     
     if args.mode == 'train':
         subprocess.run(["python", "-m", "src.train_model"])
     elif args.mode == 'live':
-        run_live_mode(single_run=False, verbose=args.verbose)
+        run_live_mode(single_run=False, detail=args.detail)
     elif args.mode == 'cron':
-        run_live_mode(single_run=True, verbose=args.verbose)
+        run_live_mode(single_run=True, detail=args.detail)
     else:
         run_batch_mode()
 

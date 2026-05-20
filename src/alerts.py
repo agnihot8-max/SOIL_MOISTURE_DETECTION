@@ -14,6 +14,23 @@ load_dotenv()
 class AlertSystem:
 
     @staticmethod
+    def check_configuration():
+        ntfy_topic = os.environ.get('NTFY_TOPIC')
+        if not ntfy_topic:
+            print(f"  {Fore.YELLOW}[WARNING]{Style.RESET_ALL} NTFY_TOPIC is missing. Push notifications are disabled.")
+        else:
+            print(f"  {Fore.GREEN}[CONFIG]{Style.RESET_ALL} NTFY push notifications enabled for topic: {ntfy_topic}")
+
+        smtp_email = os.environ.get('SMTP_EMAIL')
+        smtp_password = os.environ.get('SMTP_PASSWORD')
+        to_email = os.environ.get('MY_EMAIL')
+        
+        if not all([smtp_email, smtp_password, to_email]):
+            print(f"  {Fore.YELLOW}[WARNING]{Style.RESET_ALL} SMTP credentials (SMTP_EMAIL, SMTP_PASSWORD, MY_EMAIL) are missing or incomplete. Email alerts are disabled.")
+        else:
+            print(f"  {Fore.GREEN}[CONFIG]{Style.RESET_ALL} Email alerts enabled. Sending to: {to_email}")
+
+    @staticmethod
     def log_status(node_name, entry_count, anomaly_count):
         print(f"\n{Style.BRIGHT}{Fore.CYAN}--- Node Report: {node_name} ---{Style.RESET_ALL}")
         print(f"Total Entries: {entry_count}")
@@ -55,6 +72,7 @@ class AlertSystem:
         ntfy_topic = os.environ.get('NTFY_TOPIC')
         
         if not ntfy_topic:
+            print(f"  {Fore.YELLOW}[NTFY SKIPPED]{Style.RESET_ALL} No NTFY_TOPIC configured.")
             return
             
         try:
@@ -74,6 +92,7 @@ class AlertSystem:
         to_email = os.environ.get('MY_EMAIL')
         
         if not all([smtp_email, smtp_password, to_email]):
+            print(f"  {Fore.YELLOW}[EMAIL SKIPPED]{Style.RESET_ALL} Missing SMTP credentials.")
             return
             
         try:
