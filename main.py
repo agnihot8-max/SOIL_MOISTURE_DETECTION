@@ -3,8 +3,6 @@ import time
 import argparse
 import subprocess
 import requests
-import argparse
-import requests
 from src.data_processor import DataProcessor
 from src.detector import AnomalyDetector
 from src.alerts import AlertSystem
@@ -136,11 +134,20 @@ def run_live_mode(single_run=False, detail=False):
                         is_anomaly = latest_status['if_anomaly'] or latest_status['final_anomaly'] or latest_status['stuck_sensor'] or latest_status['battery_low']
                         
                         if detail and not is_anomaly:
-                            z_score = latest_status['raw_zscore']
-                            m_diff = latest_status['raw_moisture_diff']
-                            t_diff = latest_status['raw_temp_diff']
-                            std_dev = latest_status['raw_std_dev']
-                            AlertSystem.print_insight(node_name, latest_time, latest_value, latest_temp, latest_batt, latest_rssi, z_score, m_diff, t_diff, std_dev)
+                            insight_data = {
+                                'z_score': latest_status['raw_zscore'],
+                                'm_diff': latest_status['raw_moisture_diff'],
+                                't_diff': latest_status['raw_temp_diff'],
+                                'std_dev': latest_status['raw_std_dev'],
+                                'if_score': latest_status.get('if_score', 0.0),
+                                'farm_avg_moist': latest_status.get('farm_avg_moist', latest_value),
+                                'farm_avg_temp': latest_status.get('farm_avg_temp', latest_temp),
+                                'farm_avg_batt': latest_status.get('farm_avg_batt', latest_batt),
+                                'drift_moist': latest_status.get('drift_moist', 0.0),
+                                'drift_temp': latest_status.get('drift_temp', 0.0),
+                                'has_rained': latest_status.get('has_rained', "Unknown")
+                            }
+                            AlertSystem.print_insight(node_name, latest_time, latest_value, latest_temp, latest_batt, latest_rssi, insight_data)
                         else:
                             print(f"[{latest_time}] {node_name} | New Entry (ID: {current_entry_id}) | Moist: {latest_value:.0f} | Temp: {latest_temp:.1f}C | Batt: {latest_batt:.2f}v | RSSI: {latest_rssi:.0f}dBm")
 

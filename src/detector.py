@@ -67,6 +67,9 @@ class AnomalyDetector:
         df['moisture_diff'] = 0.0
         df['temp_diff'] = 0.0
         df['battery_diff'] = 0.0
+        df['farm_avg_moist'] = df['soil_moisture_raw']
+        df['farm_avg_temp'] = df['soil_temp_c']
+        df['farm_avg_batt'] = df['battery_voltage']
         
         if network_context:
             for idx in df.index:
@@ -89,11 +92,16 @@ class AnomalyDetector:
                 farm_avg_temp = sum(temp_vals) / len(temp_vals)
                 farm_avg_batt = sum(battery_vals) / len(battery_vals)
                 
+                df.loc[idx, 'farm_avg_moist'] = farm_avg_moist
+                df.loc[idx, 'farm_avg_temp'] = farm_avg_temp
+                df.loc[idx, 'farm_avg_batt'] = farm_avg_batt
+                
                 df.loc[idx, 'moisture_diff'] = df.loc[idx, 'soil_moisture_raw'] - farm_avg_moist
                 df.loc[idx, 'temp_diff'] = df.loc[idx, 'soil_temp_c'] - farm_avg_temp
                 df.loc[idx, 'battery_diff'] = df.loc[idx, 'battery_voltage'] - farm_avg_batt
             
         predictions = node_model.predict(df[train_features].fillna(0))
+        scores = node_model.decision_function(df[train_features].fillna(0))
         
         # Use the live rolling mean for context extraction, NOT historical training means!
         # Historical means will cause mathematically invalid Z-scores if the season has shifted.
@@ -147,6 +155,13 @@ class AnomalyDetector:
                 results.iloc[idx, results.columns.get_loc('if_reason')] = reason
                 
         # Attach raw math variables for Verbose Insight Engine
+        results['if_score'] = scores
+        results['farm_avg_moist'] = df['farm_avg_moist']
+        results['farm_avg_temp'] = df['farm_avg_temp']
+        results['farm_avg_batt'] = df['farm_avg_batt']
+        results['drift_moist'] = means['soil_moisture_raw'] - node_means['soil_moisture_raw']
+        results['drift_temp'] = means['soil_temp_c'] - node_means['soil_temp_c']
+        
         results['raw_moisture_diff'] = df['moisture_diff']
         results['raw_temp_diff'] = df['temp_diff']
         results['raw_std_dev'] = df['soil_moisture_raw'].std()
@@ -179,6 +194,7 @@ class AnomalyDetector:
         moisture_diff = df['soil_moisture_raw'].diff()
         results['is_spike'] = moisture_diff > (df['soil_moisture_raw'].mean() * 0.05)
         results['is_global_event'] = False
+        results['has_rained'] = "Unknown"
         
         if network_context:
             for idx in results.index:
@@ -203,6 +219,7 @@ class AnomalyDetector:
                                 
                     # Cross-reference with the Weather API
                     has_rained = WeatherContext.check_recent_precipitation(lat, lon)
+                    results.loc[idx, 'has_rained'] = str(has_rained)
                     
                     if has_rained:
                         AlertSystem.log_info("Weather API confirms recent rainfall. Suppressing anomalies.")
