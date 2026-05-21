@@ -52,15 +52,15 @@ class AlertSystem:
     @staticmethod
     def print_insight(node_name, timestamp, moisture, temp, batt, rssi, insight_data):
         print(f"{Fore.LIGHTBLACK_EX}[{timestamp}] {node_name} | Normal | Moist: {moisture:.0f} | Temp: {temp:.1f}C | Batt: {batt:.2f}v | RSSI: {rssi:.0f}dBm{Style.RESET_ALL}")
-        print(f"   {Fore.LIGHTBLACK_EX}-> [AI Insight] Status: NORMAL{Style.RESET_ALL}")
+        print(f"   {Fore.CYAN}-> [AI Insight]{Style.RESET_ALL} {Fore.LIGHTBLACK_EX}Status: NORMAL{Style.RESET_ALL}")
         z_val = insight_data['z_score']
-        print(f"   {Fore.LIGHTBLACK_EX}-> [Z-Score] {z_val:.2f} | The Z-Score measures sudden historical spikes; it must exceed 2.5 to trigger a statistical anomaly alert.{Style.RESET_ALL}")
+        print(f"   {Fore.MAGENTA}-> [Z-Score]{Style.RESET_ALL} {Fore.LIGHTBLACK_EX}{z_val:.2f} | The Z-Score measures sudden historical spikes; it must exceed 2.5 to trigger a statistical anomaly alert.{Style.RESET_ALL}")
         
         # ML Anomaly Score
         score = insight_data.get('if_score', 0.0)
         try:
             score_val = score.item() if hasattr(score, 'item') else float(score)
-            print(f"   {Fore.LIGHTBLACK_EX}-> [ML Safety Score] {score_val:.3f} | If this score drops below 0.0, the AI considers the multivariable data pattern highly suspicious.{Style.RESET_ALL}")
+            print(f"   {Fore.GREEN}-> [ML Safety Score]{Style.RESET_ALL} {Fore.LIGHTBLACK_EX}{score_val:.3f} | If this score drops below 0.0, the AI considers the multivariable data pattern highly suspicious.{Style.RESET_ALL}")
         except:
             pass
 
@@ -69,24 +69,38 @@ class AlertSystem:
         m_diff = abs(insight_data['m_diff'])
         t_diff = abs(insight_data['t_diff'])
         
-        print(f"   {Fore.LIGHTBLACK_EX}-> [Moisture Deviation] {m_diff:.2f} units | To prevent false alarms from minor soil variations, the AI requires this difference from the farm average to exceed {threshold:.2f} units before confirming an anomaly.{Style.RESET_ALL}")
-        print(f"   {Fore.LIGHTBLACK_EX}-> [Temperature Deviation] {t_diff:.2f}C | The AI requires a difference from the farm average of at least 2.00C before confirming a temperature anomaly.{Style.RESET_ALL}")
+        print(f"   {Fore.BLUE}-> [Moisture Deviation]{Style.RESET_ALL} {Fore.LIGHTBLACK_EX}{m_diff:.2f} units | To prevent false alarms from minor soil variations, the AI requires this difference from the farm average to exceed {threshold:.2f} units before confirming an anomaly.{Style.RESET_ALL}")
+        print(f"   {Fore.RED}-> [Temperature Deviation]{Style.RESET_ALL} {Fore.LIGHTBLACK_EX}{t_diff:.2f}C | The AI requires a difference from the farm average of at least 2.00C before confirming a temperature anomaly.{Style.RESET_ALL}")
+        
+        # Expected Bounds
+        exp_m = insight_data.get('expected_moist', moisture)
+        std_m = insight_data.get('expected_moist_std', 0.0)
+        lower_m = exp_m - (2.5 * std_m)
+        upper_m = exp_m + (2.5 * std_m)
+        
+        exp_t = insight_data.get('expected_temp', temp)
+        std_t = insight_data.get('expected_temp_std', 0.0)
+        lower_t = exp_t - (2.5 * std_t)
+        upper_t = exp_t + (2.5 * std_t)
+        
+        print(f"   {Fore.LIGHTCYAN_EX}-> [Expected Moisture]{Style.RESET_ALL} {Fore.LIGHTBLACK_EX}{lower_m:.0f} to {upper_m:.0f} | Based on recent history, values outside this range will trigger a statistical anomaly.{Style.RESET_ALL}")
+        print(f"   {Fore.LIGHTRED_EX}-> [Expected Temp]{Style.RESET_ALL} {Fore.LIGHTBLACK_EX}{lower_t:.1f}C to {upper_t:.1f}C | Based on recent history, values outside this range will trigger a statistical anomaly.{Style.RESET_ALL}")
         
         # Absolute Farm Averages
-        print(f"   {Fore.LIGHTBLACK_EX}-> [Context] Farm Averages | Moist: {insight_data['farm_avg_moist']:.0f} | Temp: {insight_data['farm_avg_temp']:.1f}C | Batt: {insight_data['farm_avg_batt']:.2f}v{Style.RESET_ALL}")
+        print(f"   {Fore.YELLOW}-> [Context]{Style.RESET_ALL} {Fore.LIGHTBLACK_EX}Farm Averages | Moist: {insight_data['farm_avg_moist']:.0f} | Temp: {insight_data['farm_avg_temp']:.1f}C | Batt: {insight_data['farm_avg_batt']:.2f}v{Style.RESET_ALL}")
         
         # Seasonal Drift Indicator
         moist_drift = insight_data['drift_moist']
         temp_drift = insight_data['drift_temp']
         moist_str = f"{abs(moist_drift):.0f} units {'wetter' if moist_drift > 0 else 'drier'}"
         temp_str = f"{abs(temp_drift):.1f}C {'warmer' if temp_drift > 0 else 'colder'}"
-        print(f"   {Fore.LIGHTBLACK_EX}-> [Context] Seasonal Drift | The soil is currently {temp_str} and {moist_str} than when the AI was trained.{Style.RESET_ALL}")
+        print(f"   {Fore.YELLOW}-> [Context]{Style.RESET_ALL} {Fore.LIGHTBLACK_EX}Seasonal Drift | The soil is currently {temp_str} and {moist_str} than when the AI was trained.{Style.RESET_ALL}")
 
         # Live Weather Context
         has_rained = insight_data['has_rained']
         if has_rained != "Unknown":
             weather_str = "Recent Rain Confirmed" if has_rained == "True" else "No Recent Rain"
-            print(f"   {Fore.LIGHTBLACK_EX}-> [Context] Weather API | {weather_str}{Style.RESET_ALL}")
+            print(f"   {Fore.YELLOW}-> [Context]{Style.RESET_ALL} {Fore.LIGHTBLACK_EX}Weather API | {weather_str}{Style.RESET_ALL}")
             
         print("")
 

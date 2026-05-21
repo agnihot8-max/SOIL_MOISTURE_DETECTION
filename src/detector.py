@@ -173,10 +173,18 @@ class AnomalyDetector:
         results = pd.DataFrame(index=df.index)
         
         # 1. Statistical Anomalies
-        z_scores = ((df['soil_moisture_raw'] - df['soil_moisture_raw'].rolling(window=self.window_size, min_periods=1).mean()) / 
-                    df['soil_moisture_raw'].rolling(window=self.window_size, min_periods=1).std().replace(0, 1e-9)).abs()
+        rolling_mean_moist = df['soil_moisture_raw'].rolling(window=self.window_size, min_periods=1).mean()
+        rolling_std_moist = df['soil_moisture_raw'].rolling(window=self.window_size, min_periods=1).std().replace(0, 1e-9)
+        
+        z_scores = ((df['soil_moisture_raw'] - rolling_mean_moist) / rolling_std_moist).abs()
         results['zscore_anomaly'] = z_scores > self.z_threshold
         results['raw_zscore'] = z_scores # Save for Insight Engine
+        
+        results['expected_moist'] = rolling_mean_moist
+        results['expected_moist_std'] = rolling_std_moist
+        
+        results['expected_temp'] = df['soil_temp_c'].rolling(window=self.window_size, min_periods=1).mean()
+        results['expected_temp_std'] = df['soil_temp_c'].rolling(window=self.window_size, min_periods=1).std()
         
         # 2. Sensor Stuck
         results['stuck_sensor'] = self.detect_flat_line(df['soil_moisture_raw'])

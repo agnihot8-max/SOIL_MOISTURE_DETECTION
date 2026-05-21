@@ -145,7 +145,11 @@ def run_live_mode(single_run=False, detail=False):
                                 'farm_avg_batt': latest_status.get('farm_avg_batt', latest_batt),
                                 'drift_moist': latest_status.get('drift_moist', 0.0),
                                 'drift_temp': latest_status.get('drift_temp', 0.0),
-                                'has_rained': latest_status.get('has_rained', "Unknown")
+                                'has_rained': latest_status.get('has_rained', "Unknown"),
+                                'expected_moist': latest_status.get('expected_moist', 0.0),
+                                'expected_moist_std': latest_status.get('expected_moist_std', 0.0),
+                                'expected_temp': latest_status.get('expected_temp', 0.0),
+                                'expected_temp_std': latest_status.get('expected_temp_std', 0.0)
                             }
                             AlertSystem.print_insight(node_name, latest_time, latest_value, latest_temp, latest_batt, latest_rssi, insight_data)
                         else:
