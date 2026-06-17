@@ -21,7 +21,7 @@ class AnomalyDetector:
         """Flags values that are physically unrealistic."""
         anomalies = pd.DataFrame(index=df.index)
         anomalies['moisture_range'] = (df['soil_moisture_raw'] < 0) | (df['soil_moisture_raw'] > 4000) # Typical raw range
-        anomalies['battery_low'] = df['battery_voltage'] < 3.0
+        anomalies['battery_low'] = df['battery_voltage'] < 3.1
         return anomalies
 
     def calculate_zscore(self, series):

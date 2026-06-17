@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from colorama import Fore, Style, init
 
-# Initialize colorama for Windows support
 init()
 load_dotenv()
 

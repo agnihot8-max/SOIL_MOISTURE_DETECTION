@@ -6,7 +6,6 @@ from src.alerts import AlertSystem
 from src.weather import WeatherContext
 
 def test_anomaly():
-    # Load a normal dataset
     downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
     file_path = os.path.join(downloads_path, "feed.csv")
     
@@ -15,19 +14,11 @@ def test_anomaly():
         return
         
     df = DataProcessor.load_csv(file_path)
-    
-    print("\n--- INJECTING FAKE ANOMALY ---")
-    print("Simulating a sudden irrigation pipe burst on Node A...")
-    
-    # Force the weather API to say it hasn't rained so the test succeeds
     WeatherContext.check_recent_precipitation = lambda lat, lon: False
     
-    # Intentionally corrupt the very last reading to be a massive spike
     last_idx = df.index[-1]
-    df.loc[last_idx, 'soil_moisture_raw'] = 3500  # Massive jump!
-    
-    # We need to simulate the rest of the farm staying dry (moisture around 500)
-    # so the AI sees that Node A's massive jump is completely isolated.
+    df.loc[last_idx, 'soil_moisture_raw'] = 3500  
+
     mock_node_b = df.copy()
     mock_node_b['soil_moisture_raw'] = 500
     

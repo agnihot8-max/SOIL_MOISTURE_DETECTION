@@ -12,7 +12,7 @@ class WeatherContext:
             return None
             
         try:
-            # We request hourly precipitation for the past 6 hours for a much tighter verification window
+
             url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=precipitation&timezone=auto&past_hours=6&forecast_hours=1"
             
             response = requests.get(url, timeout=10)

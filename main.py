@@ -3,6 +3,7 @@ import time
 import argparse
 import subprocess
 import requests
+import pandas as pd
 from src.data_processor import DataProcessor
 from src.detector import AnomalyDetector
 from src.alerts import AlertSystem
@@ -90,7 +91,9 @@ def run_live_mode(single_run=False, detail=False):
     AlertSystem.log_info(f"Starting {mode_text} for {len(CHANNELS)} nodes...")
     
     last_entry_ids = {node: None for node in CHANNELS}
+    offline_alerted = {node: False for node in CHANNELS}
     detector = AnomalyDetector(window_size=10, z_threshold=2.5)
+    STALE_THRESHOLD = pd.Timedelta(minutes=60)
 
     while True:
         try:
@@ -118,56 +121,75 @@ def run_live_mode(single_run=False, detail=False):
             for node_name, df in network_dfs.items():
                 current_entry_id = latest_entries[node_name].get("entry_id")
                 
+                # Check for offline status (stale data)
+                latest_time = df.iloc[-1]['created_at']
+                # Timezone-aware comparison
+                now = pd.Timestamp.now(tz=latest_time.tz) if latest_time.tz else pd.Timestamp.now()
+                time_diff = now - latest_time
+                
+                latest_value = df.iloc[-1]['soil_moisture_raw']
+                latest_temp = df.iloc[-1]['soil_temp_c']
+                latest_batt = df.iloc[-1]['battery_voltage']
+                latest_rssi = df.iloc[-1]['rssi_dbm']
+                
+                if time_diff > STALE_THRESHOLD:
+                    stale_mins = time_diff.total_seconds() / 60.0
+                    AlertSystem.print_anomaly(
+                        node_name, 
+                        latest_time, 
+                        f"Node Offline / Missed Packets (Last seen {stale_mins:.1f} mins ago)", 
+                        f"Last Battery: {latest_batt:.2f}v"
+                    )
+
                 if current_entry_id != last_entry_ids[node_name]:
                     context = {name: other_df for name, other_df in network_dfs.items() if name != node_name}
                     
                     if len(df) >= detector.window_size:
-                        analysis_results = detector.analyze(df, node_name, context)
-                        
-                        latest_status = analysis_results.iloc[-1]
-                        latest_time = df.iloc[-1]['created_at']
-                        latest_value = df.iloc[-1]['soil_moisture_raw']
-                        latest_temp = df.iloc[-1]['soil_temp_c']
-                        latest_batt = df.iloc[-1]['battery_voltage']
-                        latest_rssi = df.iloc[-1]['rssi_dbm']
-
-                        is_anomaly = latest_status['if_anomaly'] or latest_status['final_anomaly'] or latest_status['stuck_sensor'] or latest_status['battery_low']
-                        
-                        if detail and not is_anomaly:
-                            insight_data = {
-                                'z_score': latest_status['raw_zscore'],
-                                'm_diff': latest_status['raw_moisture_diff'],
-                                't_diff': latest_status['raw_temp_diff'],
-                                'std_dev': latest_status['raw_std_dev'],
-                                'if_score': latest_status.get('if_score', 0.0),
-                                'farm_avg_moist': latest_status.get('farm_avg_moist', latest_value),
-                                'farm_avg_temp': latest_status.get('farm_avg_temp', latest_temp),
-                                'farm_avg_batt': latest_status.get('farm_avg_batt', latest_batt),
-                                'drift_moist': latest_status.get('drift_moist', 0.0),
-                                'drift_temp': latest_status.get('drift_temp', 0.0),
-                                'has_rained': latest_status.get('has_rained', "Unknown"),
-                                'expected_moist': latest_status.get('expected_moist', 0.0),
-                                'expected_moist_std': latest_status.get('expected_moist_std', 0.0),
-                                'expected_temp': latest_status.get('expected_temp', 0.0),
-                                'expected_temp_std': latest_status.get('expected_temp_std', 0.0)
-                            }
-                            AlertSystem.print_insight(node_name, latest_time, latest_value, latest_temp, latest_batt, latest_rssi, insight_data)
-                        else:
-                            print(f"[{latest_time}] {node_name} | New Entry (ID: {current_entry_id}) | Moist: {latest_value:.0f} | Temp: {latest_temp:.1f}C | Batt: {latest_batt:.2f}v | RSSI: {latest_rssi:.0f}dBm")
-
-                        if latest_status['is_global_event']:
-                            AlertSystem.log_info(f"Verified global event (Rain) for {node_name}. Anomalies suppressed.")
-
-                        if latest_status['if_anomaly']:
-                            AlertSystem.print_anomaly(node_name, latest_time, f"ML Anomaly: {latest_status['if_reason']}", "N/A")
-                        elif latest_status['final_anomaly']:
-                            AlertSystem.print_anomaly(node_name, latest_time, "Statistical Outlier (Z-Score)", latest_value)
-                        
-                        if latest_status['stuck_sensor']:
-                            AlertSystem.print_anomaly(node_name, latest_time, "Sensor Flat-line (Possible failure)", latest_value)
+                        if time_diff <= STALE_THRESHOLD:
+                            analysis_results = detector.analyze(df, node_name, context)
                             
-                        if latest_status['battery_low']:
-                            AlertSystem.print_anomaly(node_name, latest_time, "Low Battery", df.iloc[-1]['battery_voltage'])
+                            latest_status = analysis_results.iloc[-1]
+    
+                            is_anomaly = latest_status['if_anomaly'] or latest_status['final_anomaly'] or latest_status['stuck_sensor'] or latest_status['battery_low']
+                            
+                            if detail and not is_anomaly:
+                                insight_data = {
+                                    'z_score': latest_status['raw_zscore'],
+                                    'm_diff': latest_status['raw_moisture_diff'],
+                                    't_diff': latest_status['raw_temp_diff'],
+                                    'std_dev': latest_status['raw_std_dev'],
+                                    'if_score': latest_status.get('if_score', 0.0),
+                                    'farm_avg_moist': latest_status.get('farm_avg_moist', latest_value),
+                                    'farm_avg_temp': latest_status.get('farm_avg_temp', latest_temp),
+                                    'farm_avg_batt': latest_status.get('farm_avg_batt', latest_batt),
+                                    'drift_moist': latest_status.get('drift_moist', 0.0),
+                                    'drift_temp': latest_status.get('drift_temp', 0.0),
+                                    'has_rained': latest_status.get('has_rained', "Unknown"),
+                                    'expected_moist': latest_status.get('expected_moist', 0.0),
+                                    'expected_moist_std': latest_status.get('expected_moist_std', 0.0),
+                                    'expected_temp': latest_status.get('expected_temp', 0.0),
+                                    'expected_temp_std': latest_status.get('expected_temp_std', 0.0)
+                                }
+                                AlertSystem.print_insight(node_name, latest_time, latest_value, latest_temp, latest_batt, latest_rssi, insight_data)
+                            else:
+                                print(f"[{latest_time}] {node_name} | New Entry (ID: {current_entry_id}) | Moist: {latest_value:.0f} | Temp: {latest_temp:.1f}C | Batt: {latest_batt:.2f}v | RSSI: {latest_rssi:.0f}dBm")
+    
+                            if latest_status['is_global_event']:
+                                AlertSystem.log_info(f"Verified global event (Rain) for {node_name}. Anomalies suppressed.")
+    
+                            if latest_status['if_anomaly']:
+                                AlertSystem.print_anomaly(node_name, latest_time, f"ML Anomaly: {latest_status['if_reason']}", "N/A")
+                            elif latest_status['final_anomaly']:
+                                AlertSystem.print_anomaly(node_name, latest_time, "Statistical Outlier (Z-Score)", latest_value)
+                            
+                            if latest_status['stuck_sensor']:
+                                AlertSystem.print_anomaly(node_name, latest_time, "Sensor Flat-line (Possible failure)", latest_value)
+                                
+                            if latest_status['battery_low']:
+                                AlertSystem.print_anomaly(node_name, latest_time, "Low Battery", df.iloc[-1]['battery_voltage'])
+                        else:
+                            # Stale reading, but new to this session (first boot of cron/daemon for a dead node)
+                            print(f"[{latest_time}] {node_name} | Stale Entry (ID: {current_entry_id}) | Moist: {latest_value:.0f} | Temp: {latest_temp:.1f}C | Batt: {latest_batt:.2f}v | RSSI: {rssi:.0f}dBm (Skipping analysis)")
                     else:
                         AlertSystem.log_info(f"Building initial window buffer for {node_name}... ({len(df)}/{detector.window_size})")
 
