@@ -14,7 +14,7 @@ CHANNELS = {
     "Node 2": "2996908",
     "Node 3": "2996910"
 }
-RESULTS_TO_FETCH = 20
+RESULTS_TO_FETCH = 100
 POLL_INTERVAL_SECONDS = 60
 
 def process_node_df(df, node_name, network_context=None):
@@ -53,10 +53,15 @@ def process_node_df(df, node_name, network_context=None):
             for idx, row in stuck.iterrows():
                 AlertSystem.print_anomaly(node_name, df.loc[idx, 'created_at'], "Sensor Flat-line (Possible failure)", df.loc[idx, 'soil_moisture_raw'])
                 
-        battery_low = analysis_results[analysis_results['battery_low'] == True]
-        if not battery_low.empty:
-            for idx, row in battery_low.iterrows():
-                AlertSystem.print_anomaly(node_name, df.loc[idx, 'created_at'], "Low Battery", df.loc[idx, 'battery_voltage'])
+        battery_critical = analysis_results[analysis_results['battery_critical'] == True]
+        if not battery_critical.empty:
+            for idx, row in battery_critical.iterrows():
+                AlertSystem.print_anomaly(node_name, df.loc[idx, 'created_at'], "CRITICAL: Low Battery (Raw Voltage)", df.loc[idx, 'battery_voltage'])
+                
+        battery_warning = analysis_results[analysis_results['battery_warning'] == True]
+        if not battery_warning.empty:
+            for idx, row in battery_warning.iterrows():
+                AlertSystem.print_anomaly(node_name, df.loc[idx, 'created_at'], "WARNING: Battery Fade (OLS Detrended)", df.loc[idx, 'battery_voltage'])
 
     except Exception as e:
         AlertSystem.log_error(f"Failed to process {node_name}: {str(e)}")
@@ -150,7 +155,7 @@ def run_live_mode(single_run=False, detail=False):
                             
                             latest_status = analysis_results.iloc[-1]
     
-                            is_anomaly = latest_status['if_anomaly'] or latest_status['final_anomaly'] or latest_status['stuck_sensor'] or latest_status['battery_low']
+                            is_anomaly = latest_status['if_anomaly'] or latest_status['final_anomaly'] or latest_status['stuck_sensor'] or latest_status['battery_critical'] or latest_status['battery_warning']
                             
                             if detail and not is_anomaly:
                                 insight_data = {
@@ -185,8 +190,10 @@ def run_live_mode(single_run=False, detail=False):
                             if latest_status['stuck_sensor']:
                                 AlertSystem.print_anomaly(node_name, latest_time, "Sensor Flat-line (Possible failure)", latest_value)
                                 
-                            if latest_status['battery_low']:
-                                AlertSystem.print_anomaly(node_name, latest_time, "Low Battery", df.iloc[-1]['battery_voltage'])
+                            if latest_status['battery_critical']:
+                                AlertSystem.print_anomaly(node_name, latest_time, "CRITICAL: Low Battery (Raw Voltage)", df.iloc[-1]['battery_voltage'])
+                            elif latest_status['battery_warning']:
+                                AlertSystem.print_anomaly(node_name, latest_time, "WARNING: Battery Fade (OLS Detrended)", df.iloc[-1]['battery_voltage'])
                         else:
                             # Stale reading, but new to this session (first boot of cron/daemon for a dead node)
                             print(f"[{latest_time}] {node_name} | Stale Entry (ID: {current_entry_id}) | Moist: {latest_value:.0f} | Temp: {latest_temp:.1f}C | Batt: {latest_batt:.2f}v | RSSI: {rssi:.0f}dBm (Skipping analysis)")

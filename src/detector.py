@@ -21,7 +21,7 @@ class AnomalyDetector:
         """Flags values that are physically unrealistic."""
         anomalies = pd.DataFrame(index=df.index)
         anomalies['moisture_range'] = (df['soil_moisture_raw'] < 0) | (df['soil_moisture_raw'] > 4000) # Typical raw range
-        anomalies['battery_low'] = df['battery_voltage'] < 3.1
+        anomalies['battery_critical'] = df['battery_voltage'] < 3.3
         return anomalies
 
     def calculate_zscore(self, series):
@@ -192,6 +192,20 @@ class AnomalyDetector:
         # 3. Range Checks
         range_checks = self.detect_out_of_range(df)
         results = pd.concat([results, range_checks], axis=1)
+        
+        # 4. OLS Battery Detrending (Early Warning)
+        # Using hardcoded mathematically perfect constants from earlier analysis
+        B2 = 0.0058
+        T_ref = 20.0
+        
+        v_4h = df.rolling('4h', on='created_at', min_periods=1)['battery_voltage'].mean()
+        t_shift = df['soil_temp_c'].shift(-6).bfill() # Fallback for first few rows
+        
+        v_comp = v_4h - (B2 * (t_shift - T_ref))
+        df['v_comp_temp'] = v_comp
+        v_final = df.rolling('24h', on='created_at', min_periods=1)['v_comp_temp'].mean()
+        
+        results['battery_warning'] = v_final < 3.42
         
         if_results = self.detect_isolation_forest(df, node_name, network_context)
         results = pd.concat([results, if_results], axis=1)
