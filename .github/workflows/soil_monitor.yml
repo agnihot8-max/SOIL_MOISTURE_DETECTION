@@ -2,8 +2,8 @@ name: Soil Moisture Monitor
 
 on:
   schedule:
-    # Runs every 31 minutes
-    - cron: '*/31 * * * *'
+    # Runs every 5 minutes (Spams the queue to bypass GitHub delays)
+    - cron: '*/5 * * * *'
   workflow_dispatch: # Allows manual trigger from the Actions tab
 
 jobs:
