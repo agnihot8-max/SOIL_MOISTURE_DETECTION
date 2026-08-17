@@ -150,7 +150,8 @@ class AnomalyDetector:
                         exp = means['soil_moisture_raw']
                         reason = f"Moisture Deviation from Farm Average (Act: {val:.0f}, Exp: {exp:.0f})"
                 else:
-                    reason = f"Network Anomaly (RSSI: {row['rssi_dbm']:.0f} dBm, Exp: {means['rssi_dbm']:.0f} dBm)"
+                    results.iloc[idx, results.columns.get_loc('if_anomaly')] = False
+                    reason = ""
                     
                 results.iloc[idx, results.columns.get_loc('if_reason')] = reason
                 
