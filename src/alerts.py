@@ -171,8 +171,7 @@ class AlertSystem:
                 url = f"https://ntfy.sh/{ntfy_topic}"
                 requests.post(url, data=report_body.encode(encoding='utf-8'), headers={
                     "Title": "Soil Moisture EOD Report",
-                    "Priority": "default",
-                    "Tags": "clipboard"
+                    "Priority": "default"
                 })
             except Exception as e:
                 print(f"  {Fore.RED}[NTFY FAILED]{Style.RESET_ALL} {e}")
