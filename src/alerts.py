@@ -159,3 +159,23 @@ class AlertSystem:
     @staticmethod
     def log_error(message):
         print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} {message}")
+
+    @staticmethod
+    def dispatch_eod_report(report_body):
+        print(f"\n{Fore.GREEN}=== END OF DAY REPORT ==={Style.RESET_ALL}\n{report_body}")
+        
+        # Send NTFY
+        ntfy_topic = os.environ.get('NTFY_TOPIC')
+        if ntfy_topic:
+            try:
+                url = f"https://ntfy.sh/{ntfy_topic}"
+                requests.post(url, data=report_body.encode(encoding='utf-8'), headers={
+                    "Title": "Soil Moisture EOD Report",
+                    "Priority": "default",
+                    "Tags": "clipboard"
+                })
+            except Exception as e:
+                print(f"  {Fore.RED}[NTFY FAILED]{Style.RESET_ALL} {e}")
+                
+        # Send Email
+        AlertSystem.send_email("Soil Moisture EOD Report", report_body)

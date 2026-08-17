@@ -1,0 +1,36 @@
+name: End of Day Report
+
+on:
+  schedule:
+    # Runs at 11:59 PM UTC every day
+    - cron: '59 23 * * *'
+  workflow_dispatch: # Allows manual trigger from the Actions tab
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Run EOD Report
+      run: python main.py --mode eod_report
+      env:
+        SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+        SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        MY_EMAIL: ${{ secrets.MY_EMAIL }}
+        NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        FARM_LATITUDE: ${{ secrets.FARM_LATITUDE }}
+        FARM_LONGITUDE: ${{ secrets.FARM_LONGITUDE }}

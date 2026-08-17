@@ -216,10 +216,62 @@ def run_live_mode(single_run=False, detail=False):
             if not single_run: time.sleep(POLL_INTERVAL_SECONDS)
             else: break
 
+def run_eod_report():
+    """Generates the End of Day summary report for all nodes over the last rolling 24 hours."""
+    AlertSystem.log_info("Generating End of Day Report...")
+    report_lines = []
+    
+    for node_name, channel_id in CHANNELS.items():
+        try:
+            url = f"https://api.thingspeak.com/channels/{channel_id}/feeds.json?results={RESULTS_TO_FETCH}"
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+            feeds = data.get("feeds", [])
+            
+            if not feeds:
+                report_lines.append(f"[{node_name}] No data available.")
+                continue
+                
+            df = DataProcessor.load_json(feeds)
+            latest_time = df.iloc[-1]['created_at']
+            now = pd.Timestamp.now(tz=latest_time.tz) if latest_time.tz else pd.Timestamp.now()
+            
+            # Filter to the last 24 hours
+            df_24h = df[df['created_at'] >= (now - pd.Timedelta(hours=24))]
+            
+            if df_24h.empty:
+                report_lines.append(f"[{node_name}] No data in the last 24 hours.\n")
+                continue
+                
+            high_batt = df_24h['battery_voltage'].max()
+            low_batt = df_24h['battery_voltage'].min()
+            high_moist = df_24h['soil_moisture_raw'].max()
+            low_moist = df_24h['soil_moisture_raw'].min()
+            
+            t_min = df_24h['created_at'].min()
+            t_max = df_24h['created_at'].max()
+            
+            time_delta = t_max - t_min
+            expected_packets = int(time_delta.total_seconds() // 1800) + 1
+            actual_packets = len(df_24h)
+            missed_packets = max(0, expected_packets - actual_packets)
+            
+            report_lines.append(f"--- {node_name} ---")
+            report_lines.append(f"Battery:  {low_batt:.2f}v to {high_batt:.2f}v")
+            report_lines.append(f"Moisture: {low_moist:.0f} to {high_moist:.0f}")
+            report_lines.append(f"Packets:  {actual_packets} received, {missed_packets} missed\n")
+            
+        except Exception as e:
+            report_lines.append(f"[{node_name}] Error generating report: {e}\n")
+            
+    final_report = "\n".join(report_lines)
+    AlertSystem.dispatch_eod_report(final_report)
+
 def main():
     parser = argparse.ArgumentParser(description="Soil Moisture Anomaly Detection")
-    parser.add_argument('--mode', choices=['batch', 'live', 'train', 'cron'], default='batch',
-                        help="Run mode: 'batch' for local CSVs, 'live' for ThingSpeak API polling, 'train' to train the IF model, 'cron' for single run.")
+    parser.add_argument('--mode', choices=['batch', 'live', 'train', 'cron', 'eod_report'], default='batch',
+                        help="Run mode: 'batch' for local CSVs, 'live' for ThingSpeak API polling, 'train' to train the IF model, 'cron' for single run, 'eod_report' for daily summary.")
     parser.add_argument('--detail', action='store_true', help="Enable the Insight Engine to print detailed math for normal readings.")
     
     args = parser.parse_args()
@@ -233,6 +285,8 @@ def main():
         run_live_mode(single_run=False, detail=args.detail)
     elif args.mode == 'cron':
         run_live_mode(single_run=True, detail=args.detail)
+    elif args.mode == 'eod_report':
+        run_eod_report()
     else:
         run_batch_mode()
 
